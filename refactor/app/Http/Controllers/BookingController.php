@@ -35,14 +35,17 @@ class BookingController extends Controller
      */
     public function index(Request $request)
     {
-        if($user_id = $request->get('user_id')) {
-
+        /** Refactored */
+        $response = null;
+        if($request->has('user_id')){
+            $user_id = $request->get('user_id');
             $response = $this->repository->getUsersJobs($user_id);
-
         }
-        elseif($request->__authenticatedUser->user_type == env('ADMIN_ROLE_ID') || $request->__authenticatedUser->user_type == env('SUPERADMIN_ROLE_ID'))
-        {
-            $response = $this->repository->getAll($request);
+        else {
+            $user_type = $request->__authenticatedUser->user_type;
+            if($user_type == env('ADMIN_ROLE_ID') || $user_type == env('SUPERADMIN_ROLE_ID')){
+                $response = $this->repository->getAll($request);
+            }
         }
 
         return response($response);
@@ -65,12 +68,13 @@ class BookingController extends Controller
      */
     public function store(Request $request)
     {
+        /** Refactored */
         $data = $request->all();
+        $user = $request->__authenticatedUser;
 
-        $response = $this->repository->store($request->__authenticatedUser, $data);
+        $response = $this->repository->store($user, $data);
 
         return response($response);
-
     }
 
     /**
@@ -80,9 +84,10 @@ class BookingController extends Controller
      */
     public function update($id, Request $request)
     {
-        $data = $request->all();
+        /** Refactored */
+        $data = $request->except(['_token', 'submit']);
         $cuser = $request->__authenticatedUser;
-        $response = $this->repository->updateJob($id, array_except($data, ['_token', 'submit']), $cuser);
+        $response = $this->repository->updateJob($id, $data, $cuser);
 
         return response($response);
     }
@@ -93,7 +98,7 @@ class BookingController extends Controller
      */
     public function immediateJobEmail(Request $request)
     {
-        $adminSenderEmail = config('app.adminemail');
+        /** Refactored */
         $data = $request->all();
 
         $response = $this->repository->storeJobEmail($data);
@@ -107,8 +112,9 @@ class BookingController extends Controller
      */
     public function getHistory(Request $request)
     {
-        if($user_id = $request->get('user_id')) {
-
+        /** Refactored */
+        if($request->has('user_id')) {
+            $user_id = $request->get('user_id');
             $response = $this->repository->getUsersJobsHistory($user_id, $request);
             return response($response);
         }
@@ -132,10 +138,11 @@ class BookingController extends Controller
 
     public function acceptJobWithId(Request $request)
     {
-        $data = $request->get('job_id');
+        /** Refactored */
+        $jobId = $request->get('job_id');
         $user = $request->__authenticatedUser;
 
-        $response = $this->repository->acceptJobWithId($data, $user);
+        $response = $this->repository->acceptJobWithId($jobId, $user);
 
         return response($response);
     }
@@ -184,7 +191,7 @@ class BookingController extends Controller
      */
     public function getPotentialJobs(Request $request)
     {
-        $data = $request->all();
+        /** Refactored */
         $user = $request->__authenticatedUser;
 
         $response = $this->repository->getPotentialJobs($user);
@@ -194,61 +201,62 @@ class BookingController extends Controller
 
     public function distanceFeed(Request $request)
     {
+        /** Refactored */
         $data = $request->all();
+
+        $jobid = null;
+        $distance = "";
+        $time = "";
+        $session = "";
+        $flagged = 'no';
+        $manually_handled = $data['manually_handled'] == 'true' ? 'yes' : 'no';
+        $by_admin = $data['by_admin'] == 'true' ? 'yes' : 'no';
+        $admincomment = $data['admincomment'] ?? "";
 
         if (isset($data['distance']) && $data['distance'] != "") {
             $distance = $data['distance'];
-        } else {
-            $distance = "";
-        }
+        } 
+
         if (isset($data['time']) && $data['time'] != "") {
             $time = $data['time'];
-        } else {
-            $time = "";
-        }
+        } 
+
         if (isset($data['jobid']) && $data['jobid'] != "") {
             $jobid = $data['jobid'];
         }
 
         if (isset($data['session_time']) && $data['session_time'] != "") {
             $session = $data['session_time'];
-        } else {
-            $session = "";
-        }
+        } 
 
         if ($data['flagged'] == 'true') {
-            if($data['admincomment'] == '') return "Please, add comment";
+            if($admincomment == "") return "Please, add comment";
             $flagged = 'yes';
-        } else {
-            $flagged = 'no';
-        }
-        
-        if ($data['manually_handled'] == 'true') {
-            $manually_handled = 'yes';
-        } else {
-            $manually_handled = 'no';
         }
 
-        if ($data['by_admin'] == 'true') {
-            $by_admin = 'yes';
-        } else {
-            $by_admin = 'no';
+        if ($jobid && ($time || $distance)) {
+
+            Distance::where('job_id', '=', $jobid)
+            ->update(
+                array(
+                    'distance' => $distance, 
+                    'time' => $time
+                )
+            );
         }
 
-        if (isset($data['admincomment']) && $data['admincomment'] != "") {
-            $admincomment = $data['admincomment'];
-        } else {
-            $admincomment = "";
-        }
-        if ($time || $distance) {
+        if ($jobid && ($admincomment || $session || $flagged || $manually_handled || $by_admin)) {
 
-            $affectedRows = Distance::where('job_id', '=', $jobid)->update(array('distance' => $distance, 'time' => $time));
-        }
-
-        if ($admincomment || $session || $flagged || $manually_handled || $by_admin) {
-
-            $affectedRows1 = Job::where('id', '=', $jobid)->update(array('admin_comments' => $admincomment, 'flagged' => $flagged, 'session_time' => $session, 'manually_handled' => $manually_handled, 'by_admin' => $by_admin));
-
+            Job::where('id', '=', $jobid)
+            ->update(
+                array(
+                    'admin_comments' => $admincomment, 
+                    'flagged' => $flagged, 
+                    'session_time' => $session, 
+                    'manually_handled' => $manually_handled, 
+                    'by_admin' => $by_admin
+                )
+            );
         }
 
         return response('Record updated!');
@@ -264,12 +272,12 @@ class BookingController extends Controller
 
     public function resendNotifications(Request $request)
     {
-        $data = $request->all();
-        $job = $this->repository->find($data['jobid']);
-        $job_data = $this->repository->jobToData($job);
-        $this->repository->sendNotificationTranslator($job, $job_data, '*');
+        /** Refactored */
+        $jobid = $request->input('jobid');
+        $job = $this->repository->find($jobid);
+        $this->repository->sendNotificationTranslator($job, $this->repository->jobToData($job), '*');
 
-        return response(['success' => 'Push sent']);
+        return response()->json(['success' => 'Push sent']);
     }
 
     /**
@@ -279,15 +287,14 @@ class BookingController extends Controller
      */
     public function resendSMSNotifications(Request $request)
     {
-        $data = $request->all();
-        $job = $this->repository->find($data['jobid']);
-        $job_data = $this->repository->jobToData($job);
-
+        /** Refactored */
+        $jobid = $request->input('jobid');
+        $job = $this->repository->find($jobid);
         try {
             $this->repository->sendSMSNotificationToTranslator($job);
-            return response(['success' => 'SMS sent']);
+            return response()->json(['success' => 'SMS sent']);
         } catch (\Exception $e) {
-            return response(['success' => $e->getMessage()]);
+            return response()->json(['success' => $e->getMessage()]);
         }
     }
 
